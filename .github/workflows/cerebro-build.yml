@@ -106,8 +106,6 @@ jobs:
           push: true
           tags: |
             ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version }}
-          build-args: |
-            VERSION=${{ github.event.inputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
