@@ -176,6 +176,14 @@ jobs:
           cp "cerebro-${TAG_VERSION}-multi_arch-images.tar.gz" "release/"
           cp "cerebro-${TAG_VERSION}-multi_arch-images.tar.gz.md5" "release/"
           
+          src_url="https://github.com/lmenezes/cerebro/archive/refs/tags/${TAG_VERSION}.tar.gz"
+          if wget -O release/cerebro-${TAG_VERSION}.tar.gz "${src_url}"; then
+            echo "下载 'cerebro-${TAG_VERSION}.tar.gz' 成功！"
+          else
+            echo "下载 'cerebro-${TAG_VERSION}.tar.gz' 失败..."
+            echo "下载地址: ${src_url}" > "release/cerebro-${TAG_VERSION}.tar.gz"
+          fi
+          
           # 创建版本说明文件
           cat > "release/CHANGELOG.md" << EOF
           # Cerebro ${TAG_VERSION}
@@ -191,6 +199,7 @@ jobs:
           2. ${CEREBRO_FILE}.md5 - cerebro应用文件MD5校验和
           3. cerebro-${TAG_VERSION}-multi_arch-images.tar.gz - 多架构Docker镜像包
           4. cerebro-${TAG_VERSION}-multi_arch-images.tar.gz.md5 - 镜像包MD5校验和
+          5. cerebro-${TAG_VERSION}.tar.gz - 源码包(实际构建没有使用)
           
           ## 使用说明
           可以在官方项目查找使用说明: https://github.com/lmenezes/cerebro
@@ -241,6 +250,7 @@ jobs:
             release/cerebro-${{ env.FILE_VERSION }}.tgz.md5
             release/cerebro-${{ env.TAG_VERSION }}-multi_arch-images.tar.gz
             release/cerebro-${{ env.TAG_VERSION }}-multi_arch-images.tar.gz.md5
+            release/cerebro-${{ env.TAG_VERSION }}.tar.gz
           generate_release_notes: false
 
       # 步骤11: 显示构建信息
@@ -263,6 +273,7 @@ jobs:
           echo "  - cerebro-${FILE_VERSION}.tgz.md5"
           echo "  - cerebro-${TAG_VERSION}-multi_arch-images.tar.gz"
           echo "  - cerebro-${TAG_VERSION}-multi_arch-images.tar.gz.md5"
+          echo "  - cerebro-${TAG_VERSION}.tar.gz"
           echo ""
           echo "========================================="
 
