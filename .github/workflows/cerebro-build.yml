@@ -108,7 +108,7 @@ jobs:
           # 第一阶段：构建阶段
           FROM alpine:3.14 as builder
           COPY ${CEREBRO_FILE} /opt/${CEREBRO_FILE}
-          RUN cd /opt && tar -zxf ${CEREBRO_FILE} && mv /opt/cerebro-${FILE_VERSION} /opt/cerebro && rm -rf ${CEREBRO_FILE}
+          RUN cd /opt && tar -zxf ${CEREBRO_FILE} && mv /opt/cerebro-${FILE_VERSION} /opt/cerebro && rm -rf ${CEREBRO_FILE} && chmod +x /opt/cerebro/bin/cerebro
           COPY README.md /opt/cerebro/README.md
           
           # 第二阶段：运行阶段
@@ -116,6 +116,7 @@ jobs:
           LABEL name="cerebro" maintainer="liulike" version="${TAG_VERSION}" description="Cerebro是一款使用Scala、Play Framework、AngularJS和Bootstrap构建的Elasticsearch网页管理工具, 使用可查看/opt/cerebro/README.md"
           COPY --from=builder /opt/cerebro /opt/cerebro
           EXPOSE 9000
+          ENTRYPOINT ["/opt/cerebro/bin/cerebro"]
           EOF
           
           echo "Docker构建上下文准备完成"
