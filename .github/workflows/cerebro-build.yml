@@ -3,10 +3,14 @@ name: cerebro-build
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: '要构建的版本号'
+      file_version:
+        description: 'Cerebro文件版本号'
         required: true
-        default: 'v0.9.4'
+        default: '0.9.4'
+        type: string
+      tag_version:
+        description: 'GitHub发布标签版本（如不填写则使用v+文件版本）'
+        required: false
         type: string
 
 # 设置环境变量
@@ -32,31 +36,54 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 步骤2: 设置Docker Buildx
+      # 步骤2: 设置变量
+      - name: 设置变量
+        id: set-variables
+        run: |
+          FILE_VERSION="${{ github.event.inputs.file_version }}"
+          TAG_VERSION="${{ github.event.inputs.tag_version }}"
+          
+          # 如果TAG_VERSION为空，则使用v${FILE_VERSION}
+          if [ -z "$TAG_VERSION" ]; then
+            TAG_VERSION="v${FILE_VERSION}"
+          fi
+          
+          echo "FILE_VERSION=${FILE_VERSION}" >> $GITHUB_OUTPUT
+          echo "TAG_VERSION=${TAG_VERSION}" >> $GITHUB_OUTPUT
+          
+          # 设置环境变量（全大写）
+          echo "FILE_VERSION=${FILE_VERSION}" >> $GITHUB_ENV
+          echo "TAG_VERSION=${TAG_VERSION}" >> $GITHUB_ENV
+
+      # 步骤3: 设置Docker Buildx
       - name: 设置Docker Buildx
         id: setup-buildx
         uses: docker/setup-buildx-action@v3
 
-      # 步骤3: 登录到Docker Hub (使用用户名/密码)
+      # 步骤4: 登录到Docker Hub (使用用户名/密码)
       - name: 登录到Docker Hub
         id: docker-login
         run: |
           echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      # 步骤4: 下载cerebro压缩包
+      # 步骤5: 下载cerebro压缩包
       - name: 下载cerebro压缩包
         id: download-cerebro-tgz
         run: |
-          VERSION=${{ github.event.inputs.version }}
-          CEREBRO_FILE="cerebro-${VERSION}.tgz"
+          # 使用环境变量
+          CEREBRO_FILE="cerebro-${FILE_VERSION}.tgz"
+          
+          echo "文件版本: ${FILE_VERSION}"
+          echo "标签版本: ${TAG_VERSION}"
+          echo "下载文件: ${CEREBRO_FILE}"
 
           # 尝试下载cerebro版本
-          echo "尝试下载 cerebro ${VERSION} 安装包 (cerebro-${VERSION}.tgz)..."
-          if curl -L -f "https://github.com/lmenezes/cerebro/releases/download/${VERSION}/cerebro-${VERSION}.tgz" -o "${CEREBRO_FILE}"; then
+          echo "尝试下载 cerebro ${FILE_VERSION} 安装包 (cerebro-${FILE_VERSION}.tgz)..."
+          if curl -L -f "https://github.com/lmenezes/cerebro/releases/download/${TAG_VERSION}/cerebro-${FILE_VERSION}.tgz" -o "${CEREBRO_FILE}"; then
             echo "成功下载 ${CEREBRO_FILE}"
           else
             echo "错误: 下载 ${CEREBRO_FILE} 失败, 请检查..."
-              exit 1
+            exit 1
           fi
 
           if [ ! -f "${CEREBRO_FILE}" ]; then
@@ -67,13 +94,11 @@ jobs:
 
           echo "构建成功"
 
-      # 步骤5: 准备Docker构建上下文
+      # 步骤6: 准备Docker构建上下文
       - name: 准备Docker构建上下文
         id: prepare-context
         run: |
-          VERSION=${{ github.event.inputs.version }}
-          CEREBRO_FILE="cerebro-${VERSION}.tgz"
-          
+          CEREBRO_FILE="cerebro-${FILE_VERSION}.tgz"
           
           # 生成MD5校验和
           md5sum "${CEREBRO_FILE}" > "${CEREBRO_FILE}.md5"
@@ -83,19 +108,19 @@ jobs:
           # 第一阶段：构建阶段
           FROM alpine:3.14 as builder
           COPY ${CEREBRO_FILE} /opt/${CEREBRO_FILE}
-          RUN cd /opt && tar -zxf ${CEREBRO_FILE} && mv /opt/cerebro-${VERSION} /opt/cerebro && rm -rf ${CEREBRO_FILE}
+          RUN cd /opt && tar -zxf ${CEREBRO_FILE} && mv /opt/cerebro-${FILE_VERSION} /opt/cerebro && rm -rf ${CEREBRO_FILE}
           COPY README.md /opt/cerebro/README.md
           
           # 第二阶段：运行阶段
           FROM openjdk:11.0.16-jre-slim-buster
-          LABEL name="cerebro" maintainer="liulike" version="${VERSION}" description="Cerebro是一款使用Scala、Play Framework、AngularJS和Bootstrap构建的Elasticsearch网页管理工具, 使用可查看/opt/cerebro/README.md"
+          LABEL name="cerebro" maintainer="liulike" version="${TAG_VERSION}" description="Cerebro是一款使用Scala、Play Framework、AngularJS和Bootstrap构建的Elasticsearch网页管理工具, 使用可查看/opt/cerebro/README.md"
           COPY --from=builder /opt/cerebro /opt/cerebro
           EXPOSE 9000
           EOF
           
           echo "Docker构建上下文准备完成"
 
-      # 步骤6: 构建并推送Docker镜像
+      # 步骤7: 构建并推送Docker镜像
       - name: 构建并推送Docker镜像
         id: build-push
         uses: docker/build-push-action@v5
@@ -105,16 +130,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version }}
+            ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ env.TAG_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # 步骤7: 下载并打包多架构镜像
+      # 步骤8: 下载并打包多架构镜像
       - name: 下载并打包多架构镜像
         id: pull-and-package
         run: |
-          VERSION=${{ github.event.inputs.version }}
-          IMAGE_NAME="${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${VERSION}"
+          IMAGE_NAME="${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${TAG_VERSION}"
           
           echo "下载多架构镜像..."
           
@@ -130,42 +154,42 @@ jobs:
           
           # 打包两个架构的镜像为一个文件
           echo "打包多架构镜像..."
-          docker save "${IMAGE_NAME}-amd64" "${IMAGE_NAME}-arm64" | gzip > "cerebro-${VERSION}-multi_arch-images.tar.gz"
+          docker save "${IMAGE_NAME}-amd64" "${IMAGE_NAME}-arm64" | gzip > "cerebro-${TAG_VERSION}-multi_arch-images.tar.gz"
           
           # 生成MD5校验和
-          md5sum "cerebro-${VERSION}-multi_arch-images.tar.gz" > "cerebro-${VERSION}-multi_arch-images.tar.gz.md5"
+          md5sum "cerebro-${TAG_VERSION}-multi_arch-images.tar.gz" > "cerebro-${TAG_VERSION}-multi_arch-images.tar.gz.md5"
           
           echo "多架构镜像打包完成"
-          echo "文件大小: $(du -h cerebro-${VERSION}-multi_arch-images.tar.gz | cut -f1)"
+          echo "文件大小: $(du -h cerebro-${TAG_VERSION}-multi_arch-images.tar.gz | cut -f1)"
 
-      # 步骤8: 为Release准备文件
+      # 步骤9: 为Release准备文件
       - name: 为Release准备文件
         id: prepare-release
         run: |
-          VERSION=${{ github.event.inputs.version }}
-          CEREBRO_FILE="cerebro-${VERSION}.tgz"
+          CEREBRO_FILE="cerebro-${FILE_VERSION}.tgz"
           mkdir -p release
           
           # 复制文件到release目录
           cp "${CEREBRO_FILE}" "release/"
           cp "${CEREBRO_FILE}.md5" "release/"
-          cp "cerebro-${VERSION}-multi_arch-images.tar.gz" "release/"
-          cp "cerebro-${VERSION}-multi_arch-images.tar.gz.md5" "release/"
+          cp "cerebro-${TAG_VERSION}-multi_arch-images.tar.gz" "release/"
+          cp "cerebro-${TAG_VERSION}-multi_arch-images.tar.gz.md5" "release/"
           
           # 创建版本说明文件
           cat > "release/CHANGELOG.md" << EOF
-          # Cerebro ${VERSION}
+          # Cerebro ${TAG_VERSION}
           
           ## 构建信息
-          - 版本: ${VERSION}
+          - 文件版本: ${FILE_VERSION}
+          - 标签版本: ${TAG_VERSION}
           - 构建时间: $(date -u)
-          - 镜像: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${VERSION}
+          - 镜像: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${TAG_VERSION}
           
           ## 包含文件
           1. ${CEREBRO_FILE} - 构建镜像使用的cerebro应用文件
           2. ${CEREBRO_FILE}.md5 - cerebro应用文件MD5校验和
-          3. cerebro-${VERSION}-multi_arch-images.tar.gz - 多架构Docker镜像包
-          4. cerebro-${VERSION}-multi_arch-images.tar.gz.md5 - 镜像包MD5校验和
+          3. cerebro-${TAG_VERSION}-multi_arch-images.tar.gz - 多架构Docker镜像包
+          4. cerebro-${TAG_VERSION}-multi_arch-images.tar.gz.md5 - 镜像包MD5校验和
           
           ## 使用说明
           可以在官方项目查找使用说明: https://github.com/lmenezes/cerebro
@@ -174,8 +198,8 @@ jobs:
           
           ## Docker镜像使用
           \`\`\`bash
-          docker pull ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${VERSION}
-          docker run -p 9000:9000 ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${VERSION}
+          docker pull ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${TAG_VERSION}
+          docker run -p 9000:9000 ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${TAG_VERSION}
           \`\`\`
           
           ## 多架构镜像包使用
@@ -184,15 +208,15 @@ jobs:
           加载镜像包：
           \`\`\`bash
           # 解压并加载所有镜像
-          gunzip -c cerebro-${VERSION}-multi_arch-images.tar.gz | docker load
+          gunzip -c cerebro-${TAG_VERSION}-multi_arch-images.tar.gz | docker load
           
           # 或者使用以下命令
-          docker load < cerebro-${VERSION}-multi_arch-images.tar.gz
+          docker load < cerebro-${TAG_VERSION}-multi_arch-images.tar.gz
           \`\`\`
           
           加载后将得到以下两个镜像：
-          - ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64
-          - ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64
+          - ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${TAG_VERSION}-amd64
+          - ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${TAG_VERSION}-arm64
           
           ## 镜像信息
           镜像支持以下平台：
@@ -201,24 +225,24 @@ jobs:
           
           EOF
 
-      # 步骤9: 创建Git标签和Release
+      # 步骤10: 创建Git标签和Release
       - name: 创建Git标签和Release
         id: create-release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: ${{ github.event.inputs.version }}
+          tag_name: ${{ env.TAG_VERSION }}
+          name: ${{ env.TAG_VERSION }}
           body_path: release/CHANGELOG.md
           draft: false
           prerelease: false
           files: |
-            release/cerebro-${{ github.event.inputs.version }}.tgz
-            release/cerebro-${{ github.event.inputs.version }}.tgz.md5
-            release/cerebro-${{ github.event.inputs.version }}-multi_arch-images.tar.gz
-            release/cerebro-${{ github.event.inputs.version }}-multi_arch-images.tar.gz.md5
+            release/cerebro-${{ env.FILE_VERSION }}.tgz
+            release/cerebro-${{ env.FILE_VERSION }}.tgz.md5
+            release/cerebro-${{ env.TAG_VERSION }}-multi_arch-images.tar.gz
+            release/cerebro-${{ env.TAG_VERSION }}-multi_arch-images.tar.gz.md5
           generate_release_notes: false
 
-      # 步骤10: 显示构建信息
+      # 步骤11: 显示构建信息
       - name: 显示构建信息
         id: show-info
         run: |
@@ -227,28 +251,28 @@ jobs:
           echo "========================================="
           echo ""
           echo "Docker镜像信息:"
-          echo "  - ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version }}"
+          echo "  - ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${TAG_VERSION}"
           echo ""
           echo "GitHub Release:"
-          echo "  - 标签: ${{ github.event.inputs.version }}"
-          echo "  - 名称: Cerebro ${{ github.event.inputs.version }}"
+          echo "  - 标签: ${TAG_VERSION}"
+          echo "  - 名称: Cerebro ${TAG_VERSION}"
           echo ""
           echo "构建产物:"
-          echo "  - cerebro-${{ github.event.inputs.version }}.tgz"
-          echo "  - cerebro-${{ github.event.inputs.version }}.tgz.md5"
-          echo "  - cerebro-${{ github.event.inputs.version }}-multi_arch-images.tar.gz"
-          echo "  - cerebro-${{ github.event.inputs.version }}-multi_arch-images.tar.gz.md5"
+          echo "  - cerebro-${FILE_VERSION}.tgz"
+          echo "  - cerebro-${FILE_VERSION}.tgz.md5"
+          echo "  - cerebro-${TAG_VERSION}-multi_arch-images.tar.gz"
+          echo "  - cerebro-${TAG_VERSION}-multi_arch-images.tar.gz.md5"
           echo ""
           echo "========================================="
 
-      # 步骤11: 登出Docker Hub (成功时执行)
+      # 步骤12: 登出Docker Hub (成功时执行)
       - name: 登出Docker Hub (成功)
         if: success()
         run: |
           echo "构建成功，登出Docker Hub..."
           docker logout
 
-      # 步骤12: 登出Docker Hub (失败时执行)
+      # 步骤13: 登出Docker Hub (失败时执行)
       - name: 登出Docker Hub (失败)
         if: failure()
         run: |
