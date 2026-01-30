@@ -78,7 +78,7 @@ jobs:
           echo "下载文件: ${CEREBRO_FILE}"
 
           # 尝试下载cerebro版本
-          echo "尝试下载 cerebro ${FILE_VERSION} 安装包 (cerebro-${FILE_VERSION}.tgz)..."
+          echo "尝试下载 cerebro ${FILE_VERSION} 安装包 (https://github.com/lmenezes/cerebro/releases/download/${TAG_VERSION}/cerebro-${FILE_VERSION}.tgz ——> ${CEREBRO_FILE})..."
           if curl -L -f "https://github.com/lmenezes/cerebro/releases/download/${TAG_VERSION}/cerebro-${FILE_VERSION}.tgz" -o "${CEREBRO_FILE}"; then
             echo "成功下载 ${CEREBRO_FILE}"
           else
